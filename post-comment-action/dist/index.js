@@ -57708,7 +57708,7 @@ async function run(dependencies = {}) {
 }
 async function runAction(dependencies = {}) {
     const workspaceId = getWorkspaceId();
-    const threadId = getInput('thread-id', { required: true }).trim();
+    const threadId = getInput('thread-id', { required: true });
     const content = getInput('content', { required: true, trimWhitespace: false });
     const audience = getAudience();
     if (!content.trim()) {
@@ -57726,8 +57726,10 @@ async function runAction(dependencies = {}) {
         if (audience) {
             args.notifyAudience = audience;
         }
+        const thread = await getThread(api, threadId);
+        validateWorkspace('Thread', thread.workspaceId, workspaceId);
         const comment = await createComment(api, args);
-        validateCommentWorkspace(comment, workspaceId);
+        validateWorkspace('Created comment', comment.workspaceId, workspaceId);
         const commentUrl = (0, comms_sdk_1.getFullCommsURL)({
             workspaceId: comment.workspaceId,
             channelId: comment.channelId,
@@ -57745,6 +57747,15 @@ async function runAction(dependencies = {}) {
         await api.close();
     }
 }
+async function getThread(api, threadId) {
+    try {
+        return await api.threads.getThread(threadId);
+    }
+    catch (error) {
+        logErrorDetails('Comms thread lookup failed', error);
+        throw error;
+    }
+}
 async function createComment(api, args) {
     try {
         return await api.comments.createComment(args);
@@ -57755,16 +57766,16 @@ async function createComment(api, args) {
     }
 }
 function getWorkspaceId() {
-    const value = getInput('workspace-id', { required: true }).trim();
+    const value = getInput('workspace-id', { required: true });
     const workspaceId = Number(value);
     if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
         throw new Error('workspace-id must be a positive integer.');
     }
     return workspaceId;
 }
-function validateCommentWorkspace(comment, workspaceId) {
-    if (comment.workspaceId !== workspaceId) {
-        throw new Error(`Created comment workspace ID ${comment.workspaceId} did not match requested workspace ID ${workspaceId}.`);
+function validateWorkspace(resourceName, actualWorkspaceId, requestedWorkspaceId) {
+    if (actualWorkspaceId !== requestedWorkspaceId) {
+        throw new Error(`${resourceName} workspace ID ${actualWorkspaceId} did not match requested workspace ID ${requestedWorkspaceId}.`);
     }
 }
 function createApi(token, dependencies) {
@@ -57823,7 +57834,7 @@ async function getPasswordGrantToken(credentials, fetchImpl) {
     });
     const responseText = await response.text();
     const body = parseJsonObject(responseText);
-    const token = body.access_token ?? body.accessToken;
+    const token = getStringProperty(body, 'access_token') ?? getStringProperty(body, 'accessToken');
     if (!response.ok) {
         throw new Error(`Comms OAuth token request failed with status ${response.status}: ${formatResponseBody(responseText)}.`);
     }
@@ -57832,12 +57843,19 @@ async function getPasswordGrantToken(credentials, fetchImpl) {
     }
     return token;
 }
+function getStringProperty(value, key) {
+    const property = value?.[key];
+    return typeof property === 'string' ? property : undefined;
+}
 function parseJsonObject(value) {
     try {
-        return value ? JSON.parse(value) : {};
+        const parsed = value ? JSON.parse(value) : {};
+        return typeof parsed === 'object' && parsed !== null
+            ? parsed
+            : undefined;
     }
     catch {
-        return {};
+        return undefined;
     }
 }
 function formatResponseBody(value) {
@@ -57848,18 +57866,20 @@ function formatResponseBody(value) {
     return normalized.length > 1000 ? `${normalized.slice(0, 1000)}...` : normalized;
 }
 function logErrorDetails(label, error) {
-    const details = error;
+    const details = typeof error === 'object' && error !== null
+        ? error
+        : undefined;
     console.error(label);
-    if (details.name) {
+    if (details?.name) {
         console.error(`Error name: ${String(details.name)}`);
     }
-    if (details.message) {
+    if (details?.message) {
         console.error(`Error message: ${String(details.message)}`);
     }
-    if (details.httpStatusCode !== undefined) {
+    if (details?.httpStatusCode !== undefined) {
         console.error(`HTTP status: ${String(details.httpStatusCode)}`);
     }
-    if (details.responseData !== undefined) {
+    if (details?.responseData !== undefined) {
         console.error(`Response data: ${formatResponseBody(JSON.stringify(details.responseData))}`);
     }
 }
@@ -57874,7 +57894,7 @@ function getAudience() {
     throw new Error('Invalid audience. Expected "channel" or "thread".');
 }
 function getOptionalInput(name) {
-    const value = getInput(name).trim();
+    const value = getInput(name);
     return value || undefined;
 }
 function getInput(name, options = {}) {

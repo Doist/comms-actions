@@ -30,6 +30,13 @@ test('posts a comment and closes the API client', async () => {
             assert.equal(token, 'fresh-token')
 
             return {
+                threads: {
+                    getThread: async (id) => {
+                        assert.equal(id, threadId)
+
+                        return { workspaceId: 123 }
+                    },
+                },
                 comments: {
                     createComment: async (args) => {
                         calls.push(args)
@@ -72,6 +79,13 @@ test('supports notifying everyone in the channel', async () => {
     await runAction({
         fetch: tokenFetch(),
         createCommsApi: () => ({
+            threads: {
+                getThread: async (id) => {
+                    assert.equal(id, threadId)
+
+                    return { workspaceId: 123 }
+                },
+            },
             comments: {
                 createComment: async (args) => {
                     calls.push(args)
@@ -113,6 +127,13 @@ test('uses password grant auth', async () => {
             assert.equal(token, 'fresh-token')
 
             return {
+                threads: {
+                    getThread: async (id) => {
+                        assert.equal(id, threadId)
+
+                        return { workspaceId: 123 }
+                    },
+                },
                 comments: {
                     createComment: async () => ({
                         id: generateId(),
@@ -142,6 +163,85 @@ test('uses password grant auth', async () => {
     ])
 })
 
+test('uses COMMS_* environment variables for password grant auth', async () => {
+    const threadId = generateId()
+    const tokenRequests: Array<{ url: string; body: Record<string, string> }> = []
+
+    process.env.COMMS_CLIENT_ID = 'env-client-id'
+    process.env.COMMS_CLIENT_SECRET = 'env-client-secret'
+    process.env.COMMS_USERNAME = 'env-user@example.com'
+    process.env.COMMS_PASSWORD = 'env-password'
+    process.env['INPUT_WORKSPACE-ID'] = '123'
+    process.env['INPUT_THREAD-ID'] = threadId
+    process.env['INPUT_CONTENT'] = 'Deployment completed.'
+
+    await runAction({
+        fetch: tokenFetch(tokenRequests),
+        createCommsApi: (token) => {
+            assert.equal(token, 'fresh-token')
+
+            return {
+                threads: {
+                    getThread: async (id) => {
+                        assert.equal(id, threadId)
+
+                        return { workspaceId: 123 }
+                    },
+                },
+                comments: {
+                    createComment: async () => ({
+                        id: generateId(),
+                        workspaceId: 123,
+                        channelId: 'channel-id',
+                        threadId,
+                    }),
+                },
+                close: async () => undefined,
+            }
+        },
+    })
+
+    assert.deepEqual(tokenRequests[0]?.body, {
+        grant_type: 'password',
+        client_id: 'env-client-id',
+        client_secret: 'env-client-secret',
+        username: 'env-user@example.com',
+        password: 'env-password',
+        scope: 'comms:content:write',
+        resource: 'https://comms.todoist.com',
+    })
+})
+
+test('rejects OAuth responses with non-OK status', async () => {
+    setAuthInputs()
+    process.env['INPUT_WORKSPACE-ID'] = '123'
+    process.env['INPUT_THREAD-ID'] = generateId()
+    process.env['INPUT_CONTENT'] = 'Deployment completed.'
+
+    await assert.rejects(
+        () =>
+            runAction({
+                fetch: async () => new Response('conflict', { status: 409 }),
+            }),
+        /Comms OAuth token request failed with status 409: conflict\./,
+    )
+})
+
+test('rejects OAuth responses without an access token', async () => {
+    setAuthInputs()
+    process.env['INPUT_WORKSPACE-ID'] = '123'
+    process.env['INPUT_THREAD-ID'] = generateId()
+    process.env['INPUT_CONTENT'] = 'Deployment completed.'
+
+    await assert.rejects(
+        () =>
+            runAction({
+                fetch: async () => new Response(JSON.stringify({}), { status: 200 }),
+            }),
+        /Comms OAuth token response did not contain an access token\./,
+    )
+})
+
 test('rejects partial password grant credentials', async () => {
     process.env['INPUT_COMMS-CLIENT-ID'] = 'client-id'
     process.env['INPUT_WORKSPACE-ID'] = '123'
@@ -162,8 +262,17 @@ test('rejects invalid workspace IDs', async () => {
     await assert.rejects(() => runAction(), /workspace-id must be a positive integer./)
 })
 
-test('rejects comments created in a different workspace', async () => {
+test('rejects whitespace-only comments', async () => {
+    process.env['INPUT_WORKSPACE-ID'] = '123'
+    process.env['INPUT_THREAD-ID'] = generateId()
+    process.env['INPUT_CONTENT'] = ' \n\t '
+
+    await assert.rejects(() => runAction(), /Comment content cannot be empty\./)
+})
+
+test('rejects threads in a different workspace before creating a comment', async () => {
     const threadId = generateId()
+    let createCommentCalled = false
 
     setAuthInputs()
     process.env['INPUT_WORKSPACE-ID'] = '123'
@@ -175,19 +284,25 @@ test('rejects comments created in a different workspace', async () => {
             runAction({
                 fetch: tokenFetch(),
                 createCommsApi: () => ({
+                    threads: {
+                        getThread: async (id) => {
+                            assert.equal(id, threadId)
+
+                            return { workspaceId: 456 }
+                        },
+                    },
                     comments: {
-                        createComment: async () => ({
-                            id: generateId(),
-                            workspaceId: 456,
-                            channelId: 'channel-id',
-                            threadId,
-                        }),
+                        createComment: async () => {
+                            createCommentCalled = true
+                            throw new Error('createComment should not be called')
+                        },
                     },
                     close: async () => undefined,
                 }),
             }),
-        /Created comment workspace ID 456 did not match requested workspace ID 123./,
+        /Thread workspace ID 456 did not match requested workspace ID 123./,
     )
+    assert.equal(createCommentCalled, false)
 })
 
 test('rejects unknown audiences', async () => {

@@ -20,7 +20,14 @@ type CreatedComment = {
     threadId: string
 }
 
+type ThreadContext = {
+    workspaceId: number
+}
+
 type CommsApiClient = {
+    threads: {
+        getThread(id: string): Promise<ThreadContext>
+    }
     comments: {
         createComment(args: CreateCommentArgs): Promise<CreatedComment>
     }
@@ -42,7 +49,7 @@ export async function run(dependencies: RunDependencies = {}): Promise<void> {
 
 export async function runAction(dependencies: RunDependencies = {}): Promise<void> {
     const workspaceId = getWorkspaceId()
-    const threadId = getInput('thread-id', { required: true }).trim()
+    const threadId = getInput('thread-id', { required: true })
     const content = getInput('content', { required: true, trimWhitespace: false })
     const audience = getAudience()
 
@@ -65,8 +72,10 @@ export async function runAction(dependencies: RunDependencies = {}): Promise<voi
             args.notifyAudience = audience
         }
 
+        const thread = await getThread(api, threadId)
+        validateWorkspace('Thread', thread.workspaceId, workspaceId)
         const comment = await createComment(api, args)
-        validateCommentWorkspace(comment, workspaceId)
+        validateWorkspace('Created comment', comment.workspaceId, workspaceId)
         const commentUrl = getFullCommsURL(
             {
                 workspaceId: comment.workspaceId,
@@ -87,6 +96,15 @@ export async function runAction(dependencies: RunDependencies = {}): Promise<voi
     }
 }
 
+async function getThread(api: CommsApiClient, threadId: string): Promise<ThreadContext> {
+    try {
+        return await api.threads.getThread(threadId)
+    } catch (error: unknown) {
+        logErrorDetails('Comms thread lookup failed', error)
+        throw error
+    }
+}
+
 async function createComment(
     api: CommsApiClient,
     args: CreateCommentArgs,
@@ -100,7 +118,7 @@ async function createComment(
 }
 
 function getWorkspaceId(): number {
-    const value = getInput('workspace-id', { required: true }).trim()
+    const value = getInput('workspace-id', { required: true })
     const workspaceId = Number(value)
 
     if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
@@ -110,10 +128,14 @@ function getWorkspaceId(): number {
     return workspaceId
 }
 
-function validateCommentWorkspace(comment: CreatedComment, workspaceId: number): void {
-    if (comment.workspaceId !== workspaceId) {
+function validateWorkspace(
+    resourceName: string,
+    actualWorkspaceId: number,
+    requestedWorkspaceId: number,
+): void {
+    if (actualWorkspaceId !== requestedWorkspaceId) {
         throw new Error(
-            `Created comment workspace ID ${comment.workspaceId} did not match requested workspace ID ${workspaceId}.`,
+            `${resourceName} workspace ID ${actualWorkspaceId} did not match requested workspace ID ${requestedWorkspaceId}.`,
         )
     }
 }
@@ -188,11 +210,8 @@ async function getPasswordGrantToken(
         }),
     })
     const responseText = await response.text()
-    const body = parseJsonObject(responseText) as {
-        access_token?: string
-        accessToken?: string
-    }
-    const token = body.access_token ?? body.accessToken
+    const body = parseJsonObject(responseText)
+    const token = getStringProperty(body, 'access_token') ?? getStringProperty(body, 'accessToken')
 
     if (!response.ok) {
         throw new Error(
@@ -207,11 +226,21 @@ async function getPasswordGrantToken(
     return token
 }
 
-function parseJsonObject(value: string): unknown {
+function getStringProperty(value: Record<string, unknown> | undefined, key: string): string | undefined {
+    const property = value?.[key]
+
+    return typeof property === 'string' ? property : undefined
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | undefined {
     try {
-        return value ? JSON.parse(value) : {}
+        const parsed = value ? JSON.parse(value) : {}
+
+        return typeof parsed === 'object' && parsed !== null
+            ? parsed as Record<string, unknown>
+            : undefined
     } catch {
-        return {}
+        return undefined
     }
 }
 
@@ -226,28 +255,30 @@ function formatResponseBody(value: string): string {
 }
 
 function logErrorDetails(label: string, error: unknown): void {
-    const details = error as {
-        httpStatusCode?: unknown
-        responseData?: unknown
-        message?: unknown
-        name?: unknown
-    }
+    const details = typeof error === 'object' && error !== null
+        ? error as {
+            httpStatusCode?: unknown
+            responseData?: unknown
+            message?: unknown
+            name?: unknown
+        }
+        : undefined
 
     console.error(label)
 
-    if (details.name) {
+    if (details?.name) {
         console.error(`Error name: ${String(details.name)}`)
     }
 
-    if (details.message) {
+    if (details?.message) {
         console.error(`Error message: ${String(details.message)}`)
     }
 
-    if (details.httpStatusCode !== undefined) {
+    if (details?.httpStatusCode !== undefined) {
         console.error(`HTTP status: ${String(details.httpStatusCode)}`)
     }
 
-    if (details.responseData !== undefined) {
+    if (details?.responseData !== undefined) {
         console.error(`Response data: ${formatResponseBody(JSON.stringify(details.responseData))}`)
     }
 }
@@ -267,7 +298,7 @@ function getAudience(): CreateCommentArgs['notifyAudience'] | undefined {
 }
 
 function getOptionalInput(name: string): string | undefined {
-    const value = getInput(name).trim()
+    const value = getInput(name)
 
     return value || undefined
 }
