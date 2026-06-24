@@ -1,0 +1,44 @@
+name: Post Comms thread comment
+description: Post a comment to an existing Comms thread.
+
+inputs:
+    comms-client-id:
+        description: Comms OAuth client ID. Falls back to COMMS_CLIENT_ID.
+        required: false
+    comms-client-secret:
+        description: Comms OAuth client secret. Falls back to COMMS_CLIENT_SECRET.
+        required: false
+    comms-username:
+        description: Comms username. Falls back to COMMS_USERNAME.
+        required: false
+    comms-password:
+        description: Comms password. Falls back to COMMS_PASSWORD.
+        required: false
+    workspace-id:
+        description: Numeric Comms workspace ID. Used to validate the created comment.
+        required: true
+    thread-id:
+        description: Existing Comms thread ID where the comment should be posted.
+        required: true
+    content:
+        description: Markdown content for the comment.
+        required: true
+    audience:
+        description: Optional notification audience. Use "channel" or "thread".
+        required: false
+
+outputs:
+    comment-id:
+        description: ID of the created comment.
+    comment-url:
+        description: Permalink to the created comment.
+    thread-id:
+        description: Thread ID returned by Comms.
+    workspace-id:
+        description: Workspace ID returned by Comms.
+    channel-id:
+        description: Channel ID returned by Comms.
+
+runs:
+    using: node24
+    main: dist/index.js

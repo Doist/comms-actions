@@ -1,0 +1,23 @@
+{
+    "name": "post-comment-action",
+    "version": "0.0.0",
+    "private": true,
+    "description": "GitHub Actions for Todoist Comms.",
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build": "tsc --noEmit",
+        "package": "rimraf dist && ncc build src/main.ts -o dist",
+        "test": "rimraf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/main.test.js && rimraf .test-dist"
+    },
+    "dependencies": {
+        "@doist/comms-sdk": "0.5.2"
+    },
+    "devDependencies": {
+        "@types/node": "24.13.2",
+        "@vercel/ncc": "0.44.0",
+        "rimraf": "6.1.3",
+        "typescript": "6.0.3"
+    }
+}
