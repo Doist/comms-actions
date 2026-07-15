@@ -49,7 +49,7 @@ Posts a Markdown comment to an existing Comms thread using
 
 The action uses the OAuth password grant: each run exchanges `comms-client-id`,
 `comms-client-secret`, `comms-username`, and `comms-password` for a fresh access
-token with `scope=comms:content:write` and `resource` set to
+token with `scope=comms:content:read comms:content:write` and `resource` set to
 `https://comms.todoist.com`.
 
 Refresh tokens are intentionally not supported by this action. GitHub Action
