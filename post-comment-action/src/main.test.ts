@@ -156,7 +156,7 @@ test('uses password grant auth', async () => {
                 client_secret: 'client-secret',
                 username: 'user@example.com',
                 password: 'password',
-                scope: 'comms:content:write',
+                scope: 'comms:content:read comms:content:write',
                 resource: 'https://comms.todoist.com',
             },
         },
@@ -207,7 +207,7 @@ test('uses COMMS_* environment variables for password grant auth', async () => {
         client_secret: 'env-client-secret',
         username: 'env-user@example.com',
         password: 'env-password',
-        scope: 'comms:content:write',
+        scope: 'comms:content:read comms:content:write',
         resource: 'https://comms.todoist.com',
     })
 })

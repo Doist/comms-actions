@@ -205,7 +205,7 @@ async function getPasswordGrantToken(
             client_secret: credentials.clientSecret,
             username: credentials.username,
             password: credentials.password,
-            scope: 'comms:content:write',
+            scope: 'comms:content:read comms:content:write',
             resource: COMMS_BASE_URL,
         }),
     })
