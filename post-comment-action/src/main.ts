@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs'
 import { EOL } from 'node:os'
 
-import { CommsApi, getFullCommsURL, type CreateCommentArgs } from '@doist/comms-sdk'
+import { CommsApi, getFullCommsURL, type CreateCommentArgs } from '@todoist/comms-sdk'
 
 const COMMS_BASE_URL = 'https://comms.todoist.com'
 const TODOIST_OAUTH_URL = 'https://app.todoist.com/oauth/access_token'
