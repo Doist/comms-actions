@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
 
-import { generateId, type CreateCommentArgs } from '@doist/comms-sdk'
+import {
+    CommsApi,
+    generateId,
+    isValidUuidV7Base58,
+    type CreateCommentArgs,
+    type CustomFetch,
+} from '@todoist/comms-sdk'
 
 import { runAction } from './main'
 
@@ -316,6 +325,119 @@ test('rejects unknown audiences', async () => {
         /Invalid audience. Expected "channel" or "thread"./,
     )
 })
+
+for (const audience of [undefined, 'channel', 'thread'] as const) {
+    test(`posts through the SDK with ${audience ?? 'no'} audience and preserves outputs`, async () => {
+        const threadId = generateId()
+        const channelId = generateId()
+        const commentId = generateId()
+        const requests: SdkRequest[] = []
+        const outputDirectory = mkdtempSync(join(tmpdir(), 'comms-action-'))
+        const outputPath = join(outputDirectory, 'outputs')
+
+        setAuthInputs()
+        process.env['INPUT_WORKSPACE-ID'] = '123'
+        process.env['INPUT_THREAD-ID'] = threadId
+        process.env['INPUT_CONTENT'] = '  Deployment completed.\n'
+        process.env['INPUT_AUDIENCE'] = audience ?? ''
+        process.env.GITHUB_OUTPUT = outputPath
+
+        try {
+            await runAction({
+                fetch: tokenFetch(),
+                createCommsApi: (token) => new CommsApi(token, {
+                    customFetch: sdkFetch(threadId, channelId, commentId, requests),
+                }),
+            })
+
+            assert.equal(requests.length, 2)
+            assert.equal(requests[0]?.method, 'GET')
+            assert.equal(requests[0]?.url.pathname, '/api/v1.0/threads/getone')
+            assert.equal(requests[0]?.url.searchParams.get('id'), threadId)
+            assert.equal(requests[1]?.method, 'POST')
+            assert.equal(requests[1]?.url.pathname, '/api/v1.0/comments/add')
+            const { id, ...payload } = requests[1]!.body
+            assert.ok(isValidUuidV7Base58(id))
+            assert.deepEqual(payload, {
+                thread_id: threadId,
+                content: '  Deployment completed.\n',
+                recipients: [],
+                groups: audience === 'channel' ? ['EVERYONE']
+                    : audience === 'thread' ? ['EVERYONE_IN_THREAD'] : [],
+            })
+            assert.deepEqual(readFileSync(outputPath, 'utf8').trim().split(/\r?\n/), [
+                `comment-id=${commentId}`,
+                `comment-url=https://comms.todoist.com/123/ch/${channelId}/t/${threadId}/c/${commentId}`,
+                `thread-id=${threadId}`,
+                'workspace-id=123',
+                `channel-id=${channelId}`,
+            ])
+        } finally {
+            rmSync(outputDirectory, { recursive: true, force: true })
+        }
+    })
+}
+
+test('rejects an invalid SDK thread ID without posting a comment', async () => {
+    const requests: SdkRequest[] = []
+    const threadId = 'invalid-thread-id'
+    setAuthInputs()
+    process.env['INPUT_WORKSPACE-ID'] = '123'
+    process.env['INPUT_THREAD-ID'] = threadId
+    process.env['INPUT_CONTENT'] = 'Deployment completed.'
+
+    await assert.rejects(() => runAction({
+        fetch: tokenFetch(),
+        createCommsApi: (token) => new CommsApi(token, {
+            customFetch: sdkFetch(threadId, generateId(), generateId(), requests),
+        }),
+    }), /invalid threadId/)
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0]?.method, 'GET')
+})
+
+type SdkRequest = {
+    url: URL
+    method: string | undefined
+    body: Record<string, unknown>
+}
+
+function sdkFetch(
+    threadId: string,
+    channelId: string,
+    commentId: string,
+    requests: SdkRequest[],
+): CustomFetch {
+    return async (url, options) => {
+        assert.equal(new URL(url).origin, 'https://comms.todoist.com')
+        assert.equal(new Headers(options?.headers).get('authorization'), 'Bearer fresh-token')
+        requests.push({
+            url: new URL(url),
+            method: options?.method,
+            body: options?.body ? JSON.parse(String(options.body)) : {},
+        })
+        const common = {
+            channel_id: channelId,
+            workspace_id: 123,
+            content: 'Deployment completed.',
+            creator: 1,
+            posted_ts: 1_700_000_000,
+        }
+        const body = options?.method === 'GET'
+            ? {
+                ...common, id: threadId, title: 'Release', comment_count: 0,
+                last_updated_ts: 1_700_000_000, snippet: '', snippet_creator: 1,
+                is_archived: false,
+            }
+            : { ...common, id: commentId, thread_id: threadId }
+
+        return {
+            ok: true, status: 200, statusText: 'OK', headers: {},
+            text: async () => JSON.stringify(body),
+            json: async () => body,
+        }
+    }
+}
 
 function setAuthInputs(): void {
     process.env['INPUT_COMMS-CLIENT-ID'] = 'client-id'

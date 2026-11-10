@@ -26,15 +26,36 @@ the existing action commit; it does not require a new tag or package release.
 ## Organization migration
 
 The owner change preserves the action's inputs, outputs, authentication, and
-committed `dist/index.js` bundle. The bundle and lockfile still use
-`@doist/comms-sdk@0.5.2` intentionally so shared CI can transition independently
-of SDK publication.
+existing committed bundle. The usage example pins that working bootstrap
+revision independently of SDK publication.
 
-Migrating to `@todoist/comms-sdk` is a separate follow-up after its new-scope
-release and dependencies are available. That change must review SDK API
-compatibility, update the source and test imports, regenerate the lockfile from
-the registry, run the tests and build, and regenerate the committed bundle.
-The owner change alone does not complete the package migration.
+The source migration targets `@todoist/comms-sdk@4.0.1`, an intended release that
+is not yet published. **WAITING_FOR_PUBLICATION: do not merge this SDK change.**
+The lockfile and committed bundle intentionally still contain
+`@doist/comms-sdk@0.5.2`; they must be regenerated from the real new-scope package
+before this migration is usable. No new action pin is ready yet.
+
+SDK 4.x uses the `/api/v1.0/` endpoints instead of `/api/v1/` and validates
+comment `threadId` values as base58 UUIDv7 before sending the POST. The action
+still checks the thread's workspace first. Its public inputs, outputs, OAuth
+endpoint and scopes, empty recipient lists, and audience choices stay the same.
+Mocked SDK transport tests cover the new request paths, notification payloads,
+output URLs, and invalid IDs without calling Comms.
+
+After the coordinator confirms the actual release and its dependencies:
+
+```sh
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+npm run build
+npm run package
+```
+
+Review and commit the real lockfile and all generated files in `dist/` before
+choosing a new immutable action pin. SDK 4.x can produce additional bundle
+chunks; commit them together with `dist/index.js`. Verification with the old
+scope is provisional and does not prove installation of the intended release.
 
 ## Inputs
 
